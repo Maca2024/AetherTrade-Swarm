@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useRegime, useApiStatus } from '@/lib/hooks'
 import { REGIMES } from '@/lib/data'
+import AuthButton from '@/components/AuthButton'
 
 const NAV_ITEMS = [
   {
@@ -343,8 +344,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
 
-          {/* Regime badge in top bar */}
-          <RegimeBadge />
+          {/* Auth + Regime badge in top bar */}
+          <div className="flex items-center gap-4">
+            <RegimeBadge />
+            <AuthButton />
+          </div>
         </header>
 
         {/* Page content */}
