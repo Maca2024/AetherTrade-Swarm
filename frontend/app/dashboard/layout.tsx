@@ -29,7 +29,7 @@ import { REGIMES } from '@/lib/data'
 const NAV_ITEMS = [
   {
     href: '/dashboard',
-    label: 'Overview',
+    label: 'Overzicht',
     icon: LayoutDashboard,
     exact: true,
   },
@@ -41,25 +41,25 @@ const NAV_ITEMS = [
   },
   {
     href: '/dashboard/pods',
-    label: 'Strategy Pods',
+    label: 'Strategie Pods',
     icon: Layers,
     exact: false,
   },
   {
     href: '/dashboard/portfolio',
-    label: 'Portfolio',
+    label: 'Portefeuille',
     icon: Briefcase,
     exact: false,
   },
   {
     href: '/dashboard/risk',
-    label: 'Risk',
+    label: 'Risicobeheer',
     icon: Shield,
     exact: false,
   },
   {
     href: '/dashboard/settings',
-    label: 'Settings',
+    label: 'Instellingen',
     icon: Settings,
     exact: false,
   },

@@ -64,6 +64,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("Market data service init failed: %s", exc)
 
+    # Init self-learning engine
+    try:
+        from core.self_learning import get_self_learning_engine
+        learning = get_self_learning_engine(db)
+        logger.info("Self-learning engine ready (weights: %d pods)", len(learning.pod_weights))
+    except Exception as exc:
+        logger.warning("Self-learning engine init failed: %s", exc)
+
     # Seed a default dev API key so the app is usable immediately
     from api.auth import create_api_key
     from models.schemas import KeyTier
@@ -166,6 +174,7 @@ from api.routes.keys import router as keys_router
 from api.routes.chat import router as chat_router
 from api.routes.market_data import router as market_data_router
 from api.routes.trades import router as trades_router
+from api.routes.learning import router as learning_router
 
 app.include_router(health_router)
 app.include_router(regime_router)
@@ -177,6 +186,7 @@ app.include_router(keys_router)
 app.include_router(chat_router)
 app.include_router(market_data_router)
 app.include_router(trades_router)
+app.include_router(learning_router)
 
 
 # ---------------------------------------------------------------------------

@@ -54,20 +54,20 @@ export default function Footer() {
                   AETHERTRADE-SWARM
                 </div>
                 <div className="text-[10px] text-white/30 tracking-widest">
-                  AI TRADING PLATFORM
+                  AI HANDELSPLATFORM
                 </div>
               </div>
             </div>
             <p className="text-sm text-white/30 leading-relaxed max-w-xs">
-              Next-generation multi-strategy quantitative trading intelligence.
-              9 pods, 4 regimes, unified by AI.
+              Volgende generatie multi-strategie kwantitatieve handelsintelligentie.
+              9 pods, 4 regimes, verenigd door AI.
             </p>
 
             {/* Status indicators */}
             <div className="flex items-center gap-4 mt-4">
               {[
-                { icon: <Activity className="w-3 h-3" />, label: 'API', status: 'Operational' },
-                { icon: <Shield className="w-3 h-3" />, label: 'Risk', status: 'Normal' },
+                { icon: <Activity className="w-3 h-3" />, label: 'API', status: 'Operationeel' },
+                { icon: <Shield className="w-3 h-3" />, label: 'Risico', status: 'Normaal' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-1.5">
                   <div className="text-[#00FF94]">{item.icon}</div>
@@ -89,7 +89,7 @@ export default function Footer() {
             <div>
               <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Platform</h4>
               <ul className="space-y-2.5">
-                {['Dashboard', 'Strategy Pods', 'Risk Monitor', 'Performance', 'Architecture'].map((item) => (
+                {['Dashboard', 'Strategie Pods', 'Risicobeheer', 'Prestaties', 'Architectuur'].map((item) => (
                   <li key={item}>
                     <a
                       href="#"
@@ -102,9 +102,9 @@ export default function Footer() {
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Developers</h4>
+              <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">Ontwikkelaars</h4>
               <ul className="space-y-2.5">
-                {['API Docs', 'SDK Reference', 'Webhooks', 'Rate Limits', 'Status Page'].map((item) => (
+                {['API Docs', 'SDK Referentie', 'Webhooks', 'Limieten', 'Status'].map((item) => (
                   <li key={item}>
                     <a
                       href="#"
@@ -125,14 +125,14 @@ export default function Footer() {
             transition={{ duration: 0.6, delay: 0.2 }}
           >
             <h4 className="text-xs font-bold text-white/50 uppercase tracking-widest mb-4">
-              Platform Stats
+              Platform Statistieken
             </h4>
             <div className="space-y-3">
               {[
-                { label: 'AUM', value: '$847M', color: '#00D4FF' },
-                { label: 'Daily Trades', value: '12,847', color: '#00FF94' },
+                { label: 'Beheerd Vermogen', value: '$847M', color: '#00D4FF' },
+                { label: 'Dagelijkse Trades', value: '12.847', color: '#00FF94' },
                 { label: 'Data Feeds', value: '500+', color: '#8B5CF6' },
-                { label: 'Uptime (90d)', value: '99.99%', color: '#FFB800' },
+                { label: 'Uptime (90d)', value: '99,99%', color: '#FFB800' },
               ].map((stat) => (
                 <div key={stat.label} className="flex items-center justify-between">
                   <span className="text-xs text-white/30">{stat.label}</span>
@@ -173,14 +173,14 @@ export default function Footer() {
 
           <div className="flex items-center gap-4">
             <span className="text-[10px] text-white/20">
-              Simulated data for demonstration purposes only
+              Gesimuleerde data voor demonstratiedoeleinden
             </span>
             <div className="flex items-center gap-1.5">
               <div
                 className="w-1.5 h-1.5 rounded-full bg-[#00FF94]"
                 style={{ boxShadow: '0 0 6px #00FF94' }}
               />
-              <span className="text-[10px] text-white/30">All systems nominal</span>
+              <span className="text-[10px] text-white/30">Alle systemen nominaal</span>
             </div>
           </div>
         </motion.div>

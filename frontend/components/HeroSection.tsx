@@ -230,7 +230,7 @@ export default function HeroSection() {
         >
           <span className="pulse-dot w-2 h-2 rounded-full bg-[#00FF94] text-[#00FF94]" />
           <span className="text-xs font-medium text-[#00FF94] tracking-widest uppercase">
-            Live Trading — All Systems Operational
+            Live Trading — Alle Systemen Operationeel
           </span>
         </motion.div>
 
@@ -246,20 +246,42 @@ export default function HeroSection() {
               <h1
                 id="hero-title"
                 className={cn(
-                  'text-[clamp(4rem,12vw,10rem)] font-black tracking-tighter leading-none select-none',
+                  'text-[clamp(3rem,10vw,8rem)] font-black tracking-[-0.06em] leading-[0.85] select-none',
                   'hero-glow',
                   glitchActive && 'glitch-text'
                 )}
-                data-text="AETHERTRADE-SWARM"
+                data-text="AETHER TRADE"
                 style={{
-                  background: 'linear-gradient(135deg, #FFFFFF 0%, #00D4FF 40%, #8B5CF6 70%, #FFFFFF 100%)',
+                  background: 'linear-gradient(160deg, #FFFFFF 0%, #E0E7FF 20%, #7C3AED 50%, #00D4FF 80%, #FFFFFF 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  filter: 'drop-shadow(0 0 40px rgba(124,58,237,0.3))',
+                }}
+              >
+                AETHER
+                <br />
+                <span style={{
+                  background: 'linear-gradient(135deg, #00D4FF 0%, #7C3AED 40%, #FF3366 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  letterSpacing: '0.02em',
+                }}>
+                  TRADE
+                </span>
+              </h1>
+              <div
+                className="text-[clamp(0.7rem,1.5vw,1rem)] font-bold tracking-[0.5em] uppercase mt-2"
+                style={{
+                  background: 'linear-gradient(90deg, rgba(255,255,255,0.2), rgba(0,212,255,0.6), rgba(255,255,255,0.2))',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
                   backgroundClip: 'text',
                 }}
               >
-                AETHERTRADE-SWARM
-              </h1>
+                S W A R M
+              </div>
 
               {/* Decorative lines */}
               <div className="absolute -left-8 top-1/2 w-6 h-px bg-[#00D4FF] opacity-60" />
@@ -275,7 +297,7 @@ export default function HeroSection() {
           transition={{ delay: 0.7, duration: 0.7 }}
           className="text-[clamp(0.9rem,2vw,1.25rem)] text-white/50 font-light tracking-[0.2em] uppercase mb-3"
         >
-          9 Strategy Pods &nbsp;•&nbsp; 4 Regimes &nbsp;•&nbsp; 1 Unified Intelligence
+          9 Strategie Pods &nbsp;•&nbsp; 4 Regimes &nbsp;•&nbsp; 1 Uniforme Intelligentie
         </motion.p>
 
         <motion.p
@@ -284,7 +306,7 @@ export default function HeroSection() {
           transition={{ delay: 0.9, duration: 0.7 }}
           className="text-[clamp(0.8rem,1.5vw,1rem)] text-white/30 font-light tracking-widest mb-12"
         >
-          AI-Driven Multi-Strategy Quantitative Trading Platform
+          AI-Gedreven Multi-Strategie Kwantitatief Handelsplatform
         </motion.p>
 
         {/* Sharpe counter */}
