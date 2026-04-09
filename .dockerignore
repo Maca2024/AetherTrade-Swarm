@@ -1,0 +1,10 @@
+frontend/
+.git/
+*.md
+!prompt-stack/*.md
+backend/__pycache__/
+backend/*.pyc
+backend/.env
+backend/logs/
+.github/
+node_modules/

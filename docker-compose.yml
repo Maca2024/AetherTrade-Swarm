@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  oracle-swarm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oracle-swarm-api
+    ports:
+      - "8888:8888"
+    env_file:
+      - backend/.env
+    environment:
+      - ENVIRONMENT=production
+      - CORS_ORIGINS=http://localhost:3000,https://oracle-swarm.aetherlink.ai,https://frontend-sigma-ashen-30.vercel.app
+      - LITELLM_API_BASE=http://100.71.254.107:4000
+      - CHAT_MODEL=anthropic/claude-haiku-4-5-20251001
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - ./backend/logs:/app/logs
+    networks:
+      - oracle-net
+
+networks:
+  oracle-net:
+    driver: bridge
