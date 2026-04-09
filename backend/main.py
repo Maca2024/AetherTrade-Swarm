@@ -149,6 +149,7 @@ from api.routes.risk import router as risk_router
 from api.routes.keys import router as keys_router
 from api.routes.chat import router as chat_router
 from api.routes.market_data import router as market_data_router
+from api.routes.trades import router as trades_router
 
 app.include_router(health_router)
 app.include_router(regime_router)
@@ -159,6 +160,7 @@ app.include_router(risk_router)
 app.include_router(keys_router)
 app.include_router(chat_router)
 app.include_router(market_data_router)
+app.include_router(trades_router)
 
 
 # ---------------------------------------------------------------------------
@@ -184,5 +186,8 @@ async def root() -> dict:
             "portfolio": "/api/v1/portfolio",
             "risk": "/api/v1/risk",
             "keys": "/api/v1/keys",
+            "trades": "/api/v1/trades",
+            "execute_trade": "/api/v1/trades/execute",
+            "equity_curve": "/api/v1/portfolio/equity-curve",
         },
     }
