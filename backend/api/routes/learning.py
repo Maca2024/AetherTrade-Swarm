@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from api.deps import ApiKeyDep
+from api.auth import ApiKeyDep
 from core.self_learning import get_self_learning_engine
 
 router = APIRouter(prefix="/api/v1/learning", tags=["learning"])
