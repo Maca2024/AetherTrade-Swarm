@@ -188,3 +188,25 @@ def init_regime_detector(returns: np.ndarray) -> RegimeDetector:
     _detector = RegimeDetector()
     _detector.fit(returns)
     return _detector
+
+
+def init_regime_detector_from_market() -> RegimeDetector:
+    """Initialize regime detector using real SPY returns from yfinance."""
+    global _detector
+    _detector = RegimeDetector()
+    try:
+        from data.market_data import get_market_data_service
+        mds = get_market_data_service()
+        spy_returns = mds.get_returns("SPY", "2y")
+        if len(spy_returns) >= 60:
+            _detector.fit(spy_returns)
+            regime, conf, probs = _detector.predict(spy_returns)
+            logger.info(
+                "Regime detector initialized from real SPY data: %s (%.0f%% confidence, %d observations)",
+                regime.value, conf * 100, len(spy_returns),
+            )
+        else:
+            logger.warning("Insufficient SPY data (%d obs), regime detector unfitted", len(spy_returns))
+    except Exception as exc:
+        logger.error("Failed to init regime from market data: %s", exc)
+    return _detector

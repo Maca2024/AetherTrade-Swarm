@@ -1,117 +1,197 @@
 """
 AETHERTRADE-SWARM — Statistical Arbitrage Pod
-PCA residual trading + Post-Earnings Announcement Drift (PEAD).
+Real pairs-trading: price-ratio z-score on three cointegrated pairs.
 
-Signals:
-1. PCA residual — factor-neutral equity deviation from predicted price
-2. PEAD — systematic drift following earnings surprises (SUE-ranked)
-3. Index rebalance arbitrage — front-running known index add/removes
+Pairs:
+  AAPL / MSFT  — mega-cap tech
+  GOOGL / META — digital advertising duopoly
+  JPM  / GS    — US investment banking
+
+Signal rules:
+  long spread  (long leg-A, short leg-B) when z < -2
+  short spread (short leg-A, long leg-B) when z > +2
+  neutral when |z| < 1
 """
 from __future__ import annotations
 
-import random
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 
+from data.market_data import get_market_data_service
 from models.schemas import PodName, RegimeState, SignalDirection
 from .base import BaseStrategyPod
 
+logger = logging.getLogger("aethertrade.stat_arb")
 
-ELIGIBLE_UNIVERSE = [
-    "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA",
-    "JPM", "BAC", "GS", "MS", "C", "WFC",
-    "XOM", "CVX", "COP", "SLB",
-    "JNJ", "PFE", "MRK", "ABBV",
-    "SPY", "QQQ", "IWM", "MDY",
+# Each tuple: (leg_A, leg_B, rolling_window_days)
+PAIRS: list[tuple[str, str, int]] = [
+    ("AAPL", "MSFT", 60),
+    ("GOOGL", "META", 60),
+    ("JPM", "GS", 60),
 ]
+
+# Z-score entry / exit thresholds
+Z_ENTRY = 2.0
+Z_EXIT = 1.0
+
+
+def _zscore_series(ratio: np.ndarray, window: int) -> float:
+    """
+    Compute the z-score of the most recent ratio value against its
+    rolling window mean and std. Returns NaN if insufficient data.
+    """
+    if len(ratio) < window:
+        return float("nan")
+    rolling = ratio[-window:]
+    mu = float(np.mean(rolling))
+    sigma = float(np.std(rolling, ddof=1))
+    if sigma < 1e-10:
+        return float("nan")
+    return float((ratio[-1] - mu) / sigma)
+
+
+def _fetch_closes(svc: Any, symbol: str) -> list[float]:
+    """Return list of closing prices for symbol, empty on error."""
+    try:
+        daily = svc.fetch_daily(symbol, period="6mo")
+        rows = daily.get("data", [])
+        return [r["close"] for r in rows if r.get("close")]
+    except Exception as exc:
+        logger.error("stat_arb: fetch %s failed: %s", symbol, exc)
+        return []
 
 
 class StatArbPod(BaseStrategyPod):
 
-    def __init__(self, seed: int = 4) -> None:
+    def __init__(self) -> None:
         super().__init__(PodName.STAT_ARB)
-        self._rng = np.random.default_rng(seed)
-        self._random = random.Random(seed)
-        self._signal_count = 31
+        self._svc = get_market_data_service()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
 
     def generate_signals(self, context: dict[str, Any]) -> list[dict[str, Any]]:
         regime = context.get("regime", RegimeState.RANGE)
         signals: list[dict[str, Any]] = []
+        ts = datetime.now(timezone.utc).isoformat()
 
-        # Stat arb is market-neutral — best in range, survives bear
-        regime_multiplier = {
-            RegimeState.BULL: 0.7,
-            RegimeState.RANGE: 1.0,
-            RegimeState.BEAR: 0.8,
-            RegimeState.CRISIS: 0.3,
-        }.get(regime, 0.6)
+        # Stat arb is market-neutral; scale back only in crisis
+        regime_scale = {
+            RegimeState.BULL: 0.80,
+            RegimeState.RANGE: 1.00,
+            RegimeState.BEAR: 0.85,
+            RegimeState.CRISIS: 0.30,
+        }.get(regime, 0.70)
 
-        # --- PCA Residual signals ---
-        # Simulate factor model: predicted = sum(beta_i * factor_i)
-        # Residual = actual - predicted; trade mean-reversion of residual
-        pca_candidates = self._random.sample(ELIGIBLE_UNIVERSE, k=8)
-        for asset in pca_candidates:
-            # Residual Z-score: positive = rich, negative = cheap
-            residual_z = float(self._rng.normal(0.0, 2.0))
-            n_factors = self._random.randint(3, 6)
+        for leg_a, leg_b, window in PAIRS:
+            closes_a = _fetch_closes(self._svc, leg_a)
+            closes_b = _fetch_closes(self._svc, leg_b)
 
-            if abs(residual_z) > 1.8:
-                # Rich asset → short; cheap asset → long
-                direction = SignalDirection.SHORT if residual_z > 0 else SignalDirection.LONG
-                raw_strength = min(abs(residual_z) / 4.0, 1.0) * regime_multiplier
-                strength = raw_strength if direction == SignalDirection.LONG else -raw_strength
+            # Align to the shorter series length
+            min_len = min(len(closes_a), len(closes_b))
+            if min_len < window + 5:
+                logger.warning(
+                    "stat_arb: insufficient data for pair %s/%s (%d rows)",
+                    leg_a, leg_b, min_len,
+                )
+                continue
 
-                signals.append({
-                    "asset": asset,
-                    "signal_name": "pca_residual_reversion",
-                    "direction": direction.value,
-                    "strength": round(float(strength), 4),
-                    "confidence": round(float(self._rng.uniform(0.60, 0.85)), 4),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "metadata": {
-                        "residual_z_score": round(float(residual_z), 4),
-                        "n_factors": n_factors,
-                        "r_squared": round(float(self._rng.uniform(0.72, 0.95)), 4),
-                        "half_life_days": self._random.randint(3, 12),
-                        "signal_type": "pca_residual",
-                    },
-                })
+            closes_a = closes_a[-min_len:]
+            closes_b = closes_b[-min_len:]
 
-        # --- PEAD signals ---
-        # Post-earnings announcement drift: buy (sell) stocks with positive
-        # (negative) earnings surprise, expected drift lasts 30–60 days
-        pead_candidates = self._random.sample(ELIGIBLE_UNIVERSE[:16], k=4)
-        for asset in pead_candidates:
-            # Standardised Unexpected Earnings (SUE) score
-            sue_score = float(self._rng.normal(0.0, 1.5))
-            if abs(sue_score) > 0.8:
-                direction = SignalDirection.LONG if sue_score > 0 else SignalDirection.SHORT
-                drift_strength = min(abs(sue_score) / 2.5, 1.0) * regime_multiplier
-                if direction == SignalDirection.SHORT:
-                    drift_strength = -drift_strength
+            prices_a = np.array(closes_a)
+            prices_b = np.array(closes_b)
 
-                days_since_earnings = self._random.randint(1, 45)
-                # Decay signal as we approach 60-day boundary
-                decay = max(0.0, 1.0 - days_since_earnings / 60.0)
+            # Price ratio: A / B
+            ratio = prices_a / prices_b
+            z = _zscore_series(ratio, window)
 
-                signals.append({
-                    "asset": asset,
-                    "signal_name": "pead_earnings_drift",
-                    "direction": direction.value,
-                    "strength": round(float(drift_strength * decay), 4),
-                    "confidence": round(float(self._rng.uniform(0.55, 0.78)), 4),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "metadata": {
-                        "sue_score": round(float(sue_score), 4),
-                        "days_since_earnings": days_since_earnings,
-                        "decay_factor": round(float(decay), 4),
-                        "expected_drift_days": 60 - days_since_earnings,
-                        "signal_type": "pead",
-                    },
-                })
+            if np.isnan(z):
+                logger.warning("stat_arb: z-score NaN for %s/%s", leg_a, leg_b)
+                continue
 
+            current_ratio = float(ratio[-1])
+            rolling_mean = float(np.mean(ratio[-window:]))
+            rolling_std = float(np.std(ratio[-window:], ddof=1))
+
+            # Current price of each leg for metadata
+            price_a = float(prices_a[-1])
+            price_b = float(prices_b[-1])
+
+            abs_z = abs(z)
+
+            if abs_z < Z_EXIT:
+                # No signal — ratio within normal range
+                continue
+
+            # Strength proportional to how far z is from threshold, capped at 1
+            raw_strength = min((abs_z - Z_EXIT) / (Z_ENTRY - Z_EXIT + 0.001), 1.0)
+            scaled = round(raw_strength * regime_scale, 4)
+
+            if z < -Z_ENTRY:
+                # Spread too cheap: long A, short B
+                dir_a, dir_b = SignalDirection.LONG, SignalDirection.SHORT
+                strength_a, strength_b = scaled, -scaled
+            elif z > Z_ENTRY:
+                # Spread too rich: short A, long B
+                dir_a, dir_b = SignalDirection.SHORT, SignalDirection.LONG
+                strength_a, strength_b = -scaled, scaled
+            else:
+                # |z| between Z_EXIT and Z_ENTRY — no new entry, existing positions allowed
+                continue
+
+            # Confidence: higher z divergence → higher confidence, capped at 0.88
+            confidence = round(min(0.50 + abs_z * 0.08, 0.88), 4)
+
+            pair_label = f"{leg_a}_{leg_b}"
+
+            signals.append({
+                "asset": leg_a,
+                "signal_name": f"pairs_zscore_{pair_label}",
+                "direction": dir_a.value,
+                "strength": strength_a,
+                "confidence": confidence,
+                "timestamp": ts,
+                "metadata": {
+                    "pair": pair_label,
+                    "leg": "A",
+                    "z_score": round(z, 4),
+                    "ratio": round(current_ratio, 4),
+                    "rolling_mean": round(rolling_mean, 4),
+                    "rolling_std": round(rolling_std, 4),
+                    "window_days": window,
+                    "price": round(price_a, 2),
+                    "regime_scale": regime_scale,
+                    "signal_type": "pairs_spread",
+                },
+            })
+
+            signals.append({
+                "asset": leg_b,
+                "signal_name": f"pairs_zscore_{pair_label}",
+                "direction": dir_b.value,
+                "strength": strength_b,
+                "confidence": confidence,
+                "timestamp": ts,
+                "metadata": {
+                    "pair": pair_label,
+                    "leg": "B",
+                    "z_score": round(z, 4),
+                    "ratio": round(current_ratio, 4),
+                    "rolling_mean": round(rolling_mean, 4),
+                    "rolling_std": round(rolling_std, 4),
+                    "window_days": window,
+                    "price": round(price_b, 2),
+                    "regime_scale": regime_scale,
+                    "signal_type": "pairs_spread",
+                },
+            })
+
+        self._signal_count = len(signals)
         return signals
 
     def get_metrics(self) -> dict[str, Any]:
@@ -119,6 +199,9 @@ class StatArbPod(BaseStrategyPod):
             "pod_name": self.pod_name,
             "status": "active",
             "signal_count": self._signal_count,
+            "pairs": [f"{a}/{b}" for a, b, _ in PAIRS],
+            "z_entry_threshold": Z_ENTRY,
+            "z_exit_threshold": Z_EXIT,
             "uptime_seconds": round(self.uptime_seconds, 1),
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }

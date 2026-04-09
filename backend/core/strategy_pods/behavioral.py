@@ -1,140 +1,178 @@
 """
 AETHERTRADE-SWARM — Behavioral / Sentiment Pod
-Exploits cognitive biases and sentiment extremes in market participants.
+Exploits price-based behavioral patterns: momentum divergence, volume spikes,
+consecutive down-day oversold conditions.
 
-Signals:
-1. Sentiment composite — aggregated bull/bear sentiment from positioning data
-2. Contrarian reversal — extreme fear/greed readings trigger fade signals
-3. Herding score — crowd divergence creates short-term alpha
-4. Disposition effect — retail selling pressure after gains (overestimated)
+Signals driven by REAL market data:
+1. Momentum divergence: 5-day negative vs. 20-day positive → contrarian long
+2. Volume spike: today's volume > 2x 20-day average → reversal signal
+3. Consecutive down days: > 3 days consecutive lower closes → oversold long
+Applies to SPY, QQQ, AAPL, MSFT, NVDA, TSLA.
 """
 from __future__ import annotations
 
-import random
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 
+from data.market_data import get_market_data_service
 from models.schemas import PodName, RegimeState, SignalDirection
 from .base import BaseStrategyPod
 
+logger = logging.getLogger("aethertrade.behavioral")
 
-SENTIMENT_ASSETS = ["SPY", "QQQ", "IWM", "AAPL", "TSLA", "AMZN", "NVDA", "BTC", "ETH"]
-SENTIMENT_SOURCES = [
-    "AAII_bull_bear_spread",
-    "CNN_fear_greed",
-    "put_call_ratio",
-    "NAAIM_exposure",
-    "twitter_sentiment",
-    "options_skew",
-]
+BEHAVIORAL_ASSETS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA"]
 
 
 class BehavioralPod(BaseStrategyPod):
 
-    def __init__(self, seed: int = 6) -> None:
+    def __init__(self) -> None:
         super().__init__(PodName.BEHAVIORAL)
-        self._rng = np.random.default_rng(seed)
-        self._random = random.Random(seed)
-        self._signal_count = 15
+        self._svc = get_market_data_service()
 
     def generate_signals(self, context: dict[str, Any]) -> list[dict[str, Any]]:
         regime = context.get("regime", RegimeState.BULL)
         signals: list[dict[str, Any]] = []
 
-        # Contrarian works well in extremes — dampened in crisis (rational fear)
+        # Contrarian signals work best in range-bound markets; dampen in crisis
         regime_multiplier = {
-            RegimeState.BULL: 0.8,   # Moderate greed → modest contrarian
-            RegimeState.RANGE: 1.0,  # Best environment: sentiment swings
+            RegimeState.BULL: 0.8,
+            RegimeState.RANGE: 1.0,
             RegimeState.BEAR: 0.9,
-            RegimeState.CRISIS: 0.4, # Extreme fear can persist
+            RegimeState.CRISIS: 0.4,
         }.get(regime, 0.7)
 
-        # --- Sentiment composite ---
-        # Composite ranges -100 (extreme fear) to +100 (extreme greed)
-        sentiment_composite = float(self._rng.normal(0.0, 35.0))
-        sentiment_composite = float(np.clip(sentiment_composite, -100.0, 100.0))
+        for asset in BEHAVIORAL_ASSETS:
+            asset_signals = self._analyze_asset(asset, regime_multiplier)
+            signals.extend(asset_signals)
 
-        # Contrarian: extreme readings predict reversal
-        if abs(sentiment_composite) > 55.0:
-            # Fade the crowd
-            direction = SignalDirection.SHORT if sentiment_composite > 0 else SignalDirection.LONG
-            contrarian_strength = min(abs(sentiment_composite) / 100.0, 1.0) * regime_multiplier
-            if direction == SignalDirection.SHORT:
-                contrarian_strength = -contrarian_strength
+        return signals
+
+    # ---------------------------------------------------------------------- #
+    # Per-asset analysis                                                       #
+    # ---------------------------------------------------------------------- #
+
+    def _analyze_asset(self, asset: str, regime_mult: float) -> list[dict[str, Any]]:
+        signals: list[dict[str, Any]] = []
+
+        try:
+            raw = self._svc.fetch_daily(asset, period="3mo")
+        except Exception as exc:
+            logger.error("behavioral: fetch_daily(%s): %s", asset, exc)
+            return signals
+
+        rows = raw.get("data", [])
+        if len(rows) < 25:
+            logger.warning("behavioral: %s has only %d rows, skipping", asset, len(rows))
+            return signals
+
+        closes = np.array([r["close"] for r in rows], dtype=float)
+        volumes = np.array([r["volume"] for r in rows], dtype=float)
+
+        # ------------------------------------------------------------------ #
+        # Signal 1: Momentum divergence                                       #
+        # 5-day return strongly negative AND 20-day return positive           #
+        # ------------------------------------------------------------------ #
+        ret_5d = float((closes[-1] - closes[-6]) / closes[-6]) if len(closes) >= 6 else 0.0
+        ret_20d = float((closes[-1] - closes[-21]) / closes[-21]) if len(closes) >= 21 else 0.0
+
+        if ret_5d < -0.03 and ret_20d > 0.0:
+            # Short-term fear in a medium-term uptrend → contrarian long
+            divergence_magnitude = abs(ret_5d)
+            strength = float(np.clip(divergence_magnitude * 10.0 * regime_mult, 0.0, 1.0))
+            confidence = float(np.clip(0.55 + divergence_magnitude * 4.0, 0.55, 0.82))
 
             signals.append({
-                "asset": "SPY",
-                "signal_name": "sentiment_contrarian_fade",
-                "direction": direction.value,
-                "strength": round(float(contrarian_strength), 4),
-                "confidence": round(float(self._rng.uniform(0.58, 0.80)), 4),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "metadata": {
-                    "sentiment_composite": round(float(sentiment_composite), 2),
-                    "source_count": len(SENTIMENT_SOURCES),
-                    "signal_type": "contrarian",
-                    "extreme_threshold": 55.0,
-                },
-            })
-
-        # --- Put/Call ratio contrarian ---
-        put_call_ratio = float(self._rng.uniform(0.6, 1.8))
-        if put_call_ratio > 1.4:
-            # Extreme put buying → contrarian long
-            pc_strength = min((put_call_ratio - 1.4) / 0.6, 1.0) * regime_multiplier
-            signals.append({
-                "asset": "SPY",
-                "signal_name": "put_call_contrarian_long",
+                "asset": asset,
+                "signal_name": "momentum_divergence_long",
                 "direction": SignalDirection.LONG.value,
-                "strength": round(float(pc_strength), 4),
-                "confidence": round(float(self._rng.uniform(0.60, 0.78)), 4),
+                "strength": round(strength, 4),
+                "confidence": round(confidence, 4),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "metadata": {
-                    "put_call_ratio": round(float(put_call_ratio), 4),
-                    "signal_type": "put_call_contrarian",
-                    "interpretation": "excessive_hedging",
-                },
-            })
-        elif put_call_ratio < 0.75:
-            # Extreme call buying → contrarian short
-            pc_strength = min((0.75 - put_call_ratio) / 0.25, 1.0) * regime_multiplier
-            signals.append({
-                "asset": "SPY",
-                "signal_name": "put_call_contrarian_short",
-                "direction": SignalDirection.SHORT.value,
-                "strength": round(float(-pc_strength), 4),
-                "confidence": round(float(self._rng.uniform(0.60, 0.78)), 4),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "metadata": {
-                    "put_call_ratio": round(float(put_call_ratio), 4),
-                    "signal_type": "put_call_contrarian",
-                    "interpretation": "complacency_risk",
+                    "ret_5d": round(ret_5d, 4),
+                    "ret_20d": round(ret_20d, 4),
+                    "signal_type": "momentum_divergence",
+                    "interpretation": "short_term_panic_in_uptrend",
                 },
             })
 
-        # --- Herding / crowding score per stock ---
-        crowded_assets = self._random.sample(SENTIMENT_ASSETS, k=4)
-        for asset in crowded_assets:
-            # Crowding score: 0 = uncrowded, 1 = max crowded
-            crowding = float(self._rng.uniform(0.0, 1.0))
-            if crowding > 0.75:
-                # Over-crowded long → fade / reduce
-                fade_strength = (crowding - 0.75) / 0.25 * 0.6 * regime_multiplier
+        # ------------------------------------------------------------------ #
+        # Signal 2: Volume spike — today's volume > 2x 20-day average        #
+        # ------------------------------------------------------------------ #
+        if len(volumes) >= 21:
+            avg_vol_20d = float(np.mean(volumes[-21:-1]))  # exclude today
+            today_vol = float(volumes[-1])
+            vol_ratio = today_vol / avg_vol_20d if avg_vol_20d > 0 else 0.0
+
+            if vol_ratio > 2.0:
+                # Panic selling on spike volume → likely exhaustion → reversal
+                # Direction depends on whether today's price dropped
+                today_close = closes[-1]
+                prev_close = closes[-2]
+                day_return = (today_close - prev_close) / prev_close
+
+                if day_return < -0.01:
+                    # Volume spike on down day → likely capitulation → long
+                    direction = SignalDirection.LONG
+                    strength = float(np.clip((vol_ratio - 2.0) / 3.0 * regime_mult, 0.0, 0.8))
+                else:
+                    # Volume spike on up day → potential exhaustion → short
+                    direction = SignalDirection.SHORT
+                    strength = -float(np.clip((vol_ratio - 2.0) / 3.0 * regime_mult, 0.0, 0.6))
+
+                confidence = float(np.clip(0.52 + (vol_ratio - 2.0) * 0.06, 0.52, 0.78))
+
                 signals.append({
                     "asset": asset,
-                    "signal_name": "crowding_fade",
-                    "direction": SignalDirection.SHORT.value,
-                    "strength": round(float(-fade_strength), 4),
-                    "confidence": round(float(self._rng.uniform(0.50, 0.72)), 4),
+                    "signal_name": "volume_spike_reversal",
+                    "direction": direction.value,
+                    "strength": round(strength, 4),
+                    "confidence": round(confidence, 4),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "metadata": {
-                        "crowding_score": round(float(crowding), 4),
-                        "signal_type": "herding_contrarian",
-                        "percentile_rank": round(float(crowding * 100), 1),
+                        "today_volume": int(today_vol),
+                        "avg_vol_20d": round(avg_vol_20d, 0),
+                        "vol_ratio": round(vol_ratio, 2),
+                        "day_return": round(day_return, 4),
+                        "signal_type": "volume_spike",
+                        "interpretation": "capitulation" if day_return < -0.01 else "exhaustion",
                     },
                 })
+
+        # ------------------------------------------------------------------ #
+        # Signal 3: Consecutive down days (> 3) → oversold → long            #
+        # ------------------------------------------------------------------ #
+        consecutive_down = 0
+        for i in range(len(closes) - 1, 0, -1):
+            if closes[i] < closes[i - 1]:
+                consecutive_down += 1
+            else:
+                break
+
+        if consecutive_down > 3:
+            # Cumulative loss over the streak
+            streak_start_close = closes[-(consecutive_down + 1)]
+            streak_return = float((closes[-1] - streak_start_close) / streak_start_close)
+            strength = float(np.clip(abs(streak_return) * 5.0 * regime_mult, 0.0, 0.85))
+            confidence = float(np.clip(0.50 + consecutive_down * 0.04, 0.50, 0.78))
+
+            signals.append({
+                "asset": asset,
+                "signal_name": "consecutive_down_days_oversold",
+                "direction": SignalDirection.LONG.value,
+                "strength": round(strength, 4),
+                "confidence": round(confidence, 4),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "metadata": {
+                    "consecutive_down_days": consecutive_down,
+                    "streak_return": round(streak_return, 4),
+                    "signal_type": "consecutive_down_days",
+                    "interpretation": "oversold_exhaustion",
+                },
+            })
 
         return signals
 

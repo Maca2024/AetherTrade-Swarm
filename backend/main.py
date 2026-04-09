@@ -43,10 +43,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     db = init_db(settings.supabase_url, settings.supabase_key)
     logger.info("Database client ready (fallback=%s)", db.is_fallback)
 
-    # Init data simulator (2-year history pre-computed at startup)
+    # Init data simulator (fallback for endpoints not yet migrated to real data)
     from utils.data_simulator import init_simulator
     sim = init_simulator(seed=settings.simulation_seed)
     logger.info("Data simulator ready (seed=%d, nav=%.2f)", settings.simulation_seed, sim._nav)
+
+    # Init regime detector from real market data (SPY)
+    try:
+        from core.regime_detector import init_regime_detector_from_market
+        regime_det = init_regime_detector_from_market()
+        logger.info("Regime detector initialized (fitted=%s)", regime_det.is_fitted)
+    except Exception as exc:
+        logger.warning("Regime detector init failed: %s — using simulator fallback", exc)
+
+    # Init market data service with Supabase client
+    try:
+        from data.market_data import get_market_data_service
+        mds = get_market_data_service(db)
+        logger.info("Market data service ready")
+    except Exception as exc:
+        logger.warning("Market data service init failed: %s", exc)
 
     # Seed a default dev API key so the app is usable immediately
     from api.auth import create_api_key

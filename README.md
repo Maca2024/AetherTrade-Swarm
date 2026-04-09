@@ -9,12 +9,14 @@
   <img src="https://img.shields.io/badge/Supabase-EU--West-3FCF8E?style=flat-square&logo=supabase&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/Agents-16-FF3366?style=flat-square" />
+  <img src="https://img.shields.io/badge/LOC-15K+-8B5CF6?style=flat-square" />
   <img src="https://img.shields.io/badge/License-Proprietary-gray?style=flat-square" />
 </p>
 
 <p align="center">
   <strong>16-Agent AI Trading Platform</strong><br/>
-  <em>Regime-adaptive multi-strategy portfolio management with institutional-grade risk controls</em>
+  <em>Real market data | 9 strategy pods | HMM regime detection | Paper trading engine</em><br/>
+  <a href="https://frontend-sigma-ashen-30.vercel.app">Live Demo</a> | <a href="https://frontend-sigma-ashen-30.vercel.app/dashboard">Dashboard</a>
 </p>
 
 ---
