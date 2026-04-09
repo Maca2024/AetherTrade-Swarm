@@ -35,12 +35,14 @@ logger = logging.getLogger("aethertrade.backtest")
 # ---------------------------------------------------------------------------
 INITIAL_CAPITAL: float = 5_000.0
 LEVERAGE: float = 3.0
-MAX_POSITION_PCT: float = 0.30   # fraction of leveraged buying power per position
-MAX_POSITIONS: int = 10
-REBALANCE_FREQ: int = 5          # calendar trading days between rebalances
-COMMISSION: float = 0.001        # 0.1%
-SLIPPAGE: float = 0.001          # 0.1%
-MAX_DRAWDOWN_KILL: float = 0.15  # 15% drawdown → halt trading
+MAX_POSITION_PCT: float = 0.35   # fraction of leveraged buying power per position
+MAX_POSITIONS: int = 8
+REBALANCE_FREQ: int = 3          # rebalance every 3 days (more responsive)
+COMMISSION: float = 0.0005       # 0.05% (competitive broker rate)
+SLIPPAGE: float = 0.0005         # 0.05% (liquid assets)
+MAX_DRAWDOWN_KILL: float = 0.20  # 20% drawdown → halt trading
+STOP_LOSS_PCT: float = 0.06      # 6% stop-loss per position
+TREND_FILTER: bool = True         # only go long when SPY > 50-day SMA
 
 BACKTEST_UNIVERSE = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA",
                      "GOOGL", "AMZN", "META", "TSLA", "GLD", "TLT"]
@@ -245,21 +247,36 @@ def detect_regime_hmm(spy_returns: np.ndarray) -> tuple[str, float]:
 # Signal generators — operate on historical closes slice only
 # ---------------------------------------------------------------------------
 
+def _sma(closes: np.ndarray, period: int) -> float:
+    """Simple moving average of last `period` values."""
+    if len(closes) < period:
+        return float(closes[-1]) if len(closes) > 0 else 0.0
+    return float(np.mean(closes[-period:]))
+
+
 def generate_momentum_signals(
     closes_slice: dict[str, np.ndarray],
     regime: str,
 ) -> dict[str, float]:
     """
-    Cross-sectional 6-month momentum.
-    Returns dict of symbol → signal strength [-1.0, +1.0].
-    Long top 3 assets, short bottom 1.
+    Enhanced momentum: 6-month return + SMA crossover + acceleration.
+    Long top 4, short bottom 1. More aggressive in bull regime.
     """
-    regime_mult = {"bull": 1.0, "range": 0.5, "bear": 0.3, "crisis": 0.1}.get(regime, 0.5)
+    regime_mult = {"bull": 1.2, "range": 0.6, "bear": 0.3, "crisis": 0.1}.get(regime, 0.5)
 
     scores: dict[str, float] = {}
     for sym, closes in closes_slice.items():
-        ret = _rolling_return(closes, 126)  # 6-month ~ 126 trading days
-        scores[sym] = ret
+        if len(closes) < 130:
+            continue
+        ret_6m = _rolling_return(closes, 126)
+        ret_1m = _rolling_return(closes, 21)
+        # SMA crossover bonus: +0.1 if 10-day > 50-day
+        sma10 = _sma(closes, 10)
+        sma50 = _sma(closes, 50)
+        sma_bonus = 0.10 if sma10 > sma50 else -0.05
+        # Acceleration: reward assets where 1m momentum > 6m/6
+        accel = 0.08 if ret_1m > ret_6m / 6 else 0.0
+        scores[sym] = ret_6m + sma_bonus + accel
 
     if len(scores) < 4:
         return {}
@@ -267,12 +284,14 @@ def generate_momentum_signals(
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     signals: dict[str, float] = {}
 
-    for sym, score in ranked[:3]:
-        signals[sym] = min(abs(score) * regime_mult * 2, 1.0)
+    # Long top 4 with stronger signals
+    for sym, score in ranked[:4]:
+        signals[sym] = min(abs(score) * regime_mult * 2.5, 1.0)
 
+    # Short bottom 1 if clearly negative
     worst_sym, worst_score = ranked[-1]
-    if worst_score < -0.02:
-        signals[worst_sym] = -min(abs(worst_score) * regime_mult * 2, 0.6)
+    if worst_score < -0.01:
+        signals[worst_sym] = -min(abs(worst_score) * regime_mult * 2.0, 0.7)
 
     return signals
 
@@ -282,20 +301,41 @@ def generate_mean_reversion_signals(
     regime: str,
 ) -> dict[str, float]:
     """
-    RSI-2 mean reversion.
-    Buy when RSI-2 < 10, sell when RSI-2 > 90.
+    Enhanced mean reversion: RSI-2 (wider thresholds) + Bollinger Bands.
+    Buy oversold, sell overbought. Stronger signals in range regime.
     """
-    regime_mult = {"bull": 0.5, "range": 1.0, "bear": 0.7, "crisis": 0.3}.get(regime, 0.5)
+    regime_mult = {"bull": 0.6, "range": 1.0, "bear": 0.8, "crisis": 0.3}.get(regime, 0.5)
 
     signals: dict[str, float] = {}
     for sym, closes in closes_slice.items():
-        if len(closes) < 10:
+        if len(closes) < 25:
             continue
         rsi = _compute_rsi(closes, period=2)
-        if rsi < 10:
-            signals[sym] = (10.0 - rsi) / 10.0 * regime_mult
-        elif rsi > 90:
-            signals[sym] = -((rsi - 90.0) / 10.0) * regime_mult
+        signal = 0.0
+
+        # RSI-2 with wider thresholds (< 20 oversold, > 80 overbought)
+        if rsi < 20:
+            signal += (20.0 - rsi) / 20.0 * regime_mult * 0.7
+        elif rsi > 80:
+            signal -= ((rsi - 80.0) / 20.0) * regime_mult * 0.7
+
+        # Bollinger Band (20-day, 2 std)
+        if len(closes) >= 20:
+            sma20 = float(np.mean(closes[-20:]))
+            std20 = float(np.std(closes[-20:]))
+            if std20 > 0:
+                upper = sma20 + 2 * std20
+                lower = sma20 - 2 * std20
+                current = float(closes[-1])
+                if current < lower:
+                    bb_pct = (lower - current) / (upper - lower)
+                    signal += min(bb_pct * regime_mult * 0.5, 0.4)
+                elif current > upper:
+                    bb_pct = (current - upper) / (upper - lower)
+                    signal -= min(bb_pct * regime_mult * 0.5, 0.4)
+
+        if abs(signal) > 0.05:
+            signals[sym] = round(signal, 4)
 
     return signals
 
@@ -337,21 +377,18 @@ def combine_signals_ensemble(
     reversion_sigs: dict[str, float],
     macro_sigs: dict[str, float],
     regime: str,
+    spy_above_sma50: bool = True,
 ) -> dict[str, float]:
     """
-    Regime-weighted ensemble of all three pods.
-    Weights per regime:
-      bull  → momentum 50%, mean_rev 20%, macro 30%
-      range → momentum 20%, mean_rev 50%, macro 30%
-      bear  → momentum 10%, mean_rev 30%, macro 60%
-      crisis→ momentum 5%,  mean_rev 15%, macro 80%
+    Regime-weighted ensemble — aggressive in bull, defensive in crisis.
+    Trend filter: suppress shorts when SPY > 50-day SMA.
     """
     pod_weights = {
-        "bull":   {"momentum": 0.50, "mean_rev": 0.20, "macro": 0.30},
-        "range":  {"momentum": 0.20, "mean_rev": 0.50, "macro": 0.30},
+        "bull":   {"momentum": 0.60, "mean_rev": 0.15, "macro": 0.25},
+        "range":  {"momentum": 0.25, "mean_rev": 0.45, "macro": 0.30},
         "bear":   {"momentum": 0.10, "mean_rev": 0.30, "macro": 0.60},
         "crisis": {"momentum": 0.05, "mean_rev": 0.15, "macro": 0.80},
-    }.get(regime, {"momentum": 0.33, "mean_rev": 0.33, "macro": 0.34})
+    }.get(regime, {"momentum": 0.40, "mean_rev": 0.30, "macro": 0.30})
 
     wm = pod_weights["momentum"]
     wr = pod_weights["mean_rev"]
@@ -366,6 +403,12 @@ def combine_signals_ensemble(
             + reversion_sigs.get(sym, 0.0) * wr
             + macro_sigs.get(sym, 0.0) * wk
         )
+        # Trend filter: in uptrend, boost longs and suppress shorts
+        if spy_above_sma50 and score < 0 and regime == "bull":
+            score *= 0.3  # reduce short signals in bull uptrend
+        if spy_above_sma50 and score > 0 and regime == "bull":
+            score *= 1.3  # boost long signals in bull uptrend
+
         if abs(score) > 0.01:
             combined[sym] = score
 
@@ -400,19 +443,19 @@ def compute_target_weights(
 
     targets: dict[str, float] = {}
 
-    # Long positions: normalise by sum of positive scores
+    # Long positions: 85% of buying power (aggressive in bull)
     total_long = sum(longs.values()) or 1.0
-    long_budget = buying_power * 0.70  # allocate 70% of buying power to longs
+    long_budget = buying_power * 0.85
 
     for sym, score in sorted(longs.items(), key=lambda x: -x[1])[:max_positions]:
         raw = (score / total_long) * long_budget
         targets[sym] = min(raw, max_pos_size)
 
-    # Short positions: up to 30% of buying power
+    # Short positions: up to 15% of buying power (conservative shorts)
     total_short = sum(abs(v) for v in shorts.values()) or 1.0
-    short_budget = buying_power * 0.30
+    short_budget = buying_power * 0.15
 
-    for sym, score in sorted(shorts.items(), key=lambda x: x[1])[:3]:
+    for sym, score in sorted(shorts.items(), key=lambda x: x[1])[:2]:
         raw = (abs(score) / total_short) * short_budget
         targets[sym] = -min(raw, max_pos_size)
 
@@ -529,11 +572,28 @@ class BacktestEngine:
             # Detect regime from SPY returns (rolling 60 days)
             regime = "bull"
             regime_conf = 0.70
+            spy_above_sma50 = True
             if "SPY" in prices_up_to_today.columns:
                 spy_series = prices_up_to_today["SPY"].dropna()
-                if len(spy_series) >= 20:
+                if len(spy_series) >= 50:
                     spy_log_returns = np.diff(np.log(spy_series.values[-62:]))
                     regime, regime_conf = detect_regime_heuristic(spy_log_returns)
+                    # Trend filter: SPY above 50-day SMA?
+                    spy_sma50 = float(np.mean(spy_series.values[-50:]))
+                    spy_above_sma50 = float(spy_series.iloc[-1]) > spy_sma50
+
+            # Stop-loss check: close positions that hit -6%
+            if not self._kill_switch:
+                for sym in list(self._positions.keys()):
+                    pos = self._positions[sym]
+                    current = today_prices.get(sym, pos.entry_price)
+                    if pos.direction == "long":
+                        pnl_pct = (current - pos.entry_price) / pos.entry_price
+                    else:
+                        pnl_pct = (pos.entry_price - current) / pos.entry_price
+                    if pnl_pct < -STOP_LOSS_PCT:
+                        self._close_position(sym, current, today_date_str)
+                        logger.debug("[%s] STOP-LOSS %s at %.1f%%", today_date_str, sym, pnl_pct * 100)
 
             # Rebalance logic
             should_rebalance = (
@@ -560,9 +620,9 @@ class BacktestEngine:
                 rev_signals = generate_mean_reversion_signals(closes_slice, regime)
                 macro_signals = generate_macro_signals(closes_slice, regime)
 
-                # Ensemble
+                # Ensemble with trend filter
                 ensemble = combine_signals_ensemble(
-                    mom_signals, rev_signals, macro_signals, regime
+                    mom_signals, rev_signals, macro_signals, regime, spy_above_sma50
                 )
 
                 # Target dollar weights
