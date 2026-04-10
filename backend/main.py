@@ -175,6 +175,7 @@ from api.routes.chat import router as chat_router
 from api.routes.market_data import router as market_data_router
 from api.routes.trades import router as trades_router
 from api.routes.learning import router as learning_router
+from api.routes.insider import router as insider_router
 
 app.include_router(health_router)
 app.include_router(regime_router)
@@ -187,6 +188,7 @@ app.include_router(chat_router)
 app.include_router(market_data_router)
 app.include_router(trades_router)
 app.include_router(learning_router)
+app.include_router(insider_router)
 
 
 # ---------------------------------------------------------------------------
@@ -215,5 +217,8 @@ async def root() -> dict:
             "trades": "/api/v1/trades",
             "execute_trade": "/api/v1/trades/execute",
             "equity_curve": "/api/v1/portfolio/equity-curve",
+            "insider_clusters_today": "/api/v1/insider/clusters/today",
+            "insider_clusters_hot": "/api/v1/insider/clusters/hot",
+            "insider_backtest": "/api/v1/insider/backtest",
         },
     }
