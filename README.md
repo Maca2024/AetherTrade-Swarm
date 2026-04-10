@@ -14,10 +14,26 @@
 </p>
 
 <p align="center">
-  <strong>16-Agent AI Trading Platform</strong><br/>
-  <em>Real market data | 9 strategy pods | HMM regime detection | Paper trading engine</em><br/>
-  <a href="https://frontend-sigma-ashen-30.vercel.app">Live Demo</a> | <a href="https://frontend-sigma-ashen-30.vercel.app/dashboard">Dashboard</a>
+  <strong>16-Agent AI Trading Platform + Insider Signals SaaS</strong><br/>
+  <em>Real market data | 9 strategy pods | HMM regime | Self-learning loop | SEC EDGAR insider detector</em><br/>
+  <a href="https://frontend-sigma-ashen-30.vercel.app">Live Demo</a> | <a href="https://frontend-sigma-ashen-30.vercel.app/dashboard">Dashboard</a> | <a href="https://frontend-sigma-ashen-30.vercel.app/insider-signals">Insider Signals</a>
 </p>
+
+## 🚀 Products
+
+### 1. AetherTrade Insider Signals (v1.5.0)
+SaaS product that detects corporate insider cluster buys from SEC EDGAR Form 4 filings.
+
+**Backtest (2020-2025)**:
+- 📈 **23,1% annualized return**
+- ✅ **62% win rate** (1,522 signals)
+- 📊 **Sharpe 0,55** | Max DD 17,1%
+- 🎯 **+11,6% alpha vs SPY**
+
+**Pricing**: €49/mo Starter · €149/mo Pro (real-time API + webhooks)
+
+### 2. AetherTrade-Swarm Platform
+16-agent multi-strategy trading platform with 9 strategy pods (momentum, mean reversion, macro, stat arb, options vol, behavioral, AI/ML, multi-factor, market making), HMM regime detection, paper trading engine, and self-learning loop.
 
 ---
 
