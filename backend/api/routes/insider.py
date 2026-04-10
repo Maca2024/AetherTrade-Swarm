@@ -479,11 +479,11 @@ async def get_backtest_results(
 
     period_results: list[BacktestPeriodOut] = []
     for row in rows:
-        hold_days = int(row.get("period_days", 0))
+        hold_days = int(row.get("hold_days", row.get("period_days", 60)))
         total_ret = float(row.get("total_return", 0.0))
-        # Compute annualised return from total and hold period
-        years = (hold_days * float(row.get("trade_count", 1))) / 252
-        ann_ret = (1 + total_ret) ** (1 / max(years, 0.1)) - 1 if total_ret > -1 else None
+        # Use stored annualized_return directly (already correctly computed)
+        ann_ret = float(row.get("annualized_return", 0.0))
+        trade_count = int(row.get("total_clusters", row.get("trade_count", 0)))
 
         period_results.append(BacktestPeriodOut(
             run_date=str(row.get("run_date", "")),
@@ -494,7 +494,7 @@ async def get_backtest_results(
             win_rate=float(row.get("win_rate", 0.0)),
             max_drawdown=float(row.get("max_drawdown", 0.0)),
             alpha_vs_spy=float(row.get("alpha_vs_spy", 0.0)),
-            trade_count=int(row.get("trade_count", 0)),
+            trade_count=trade_count,
         ))
 
     return BacktestOut(
